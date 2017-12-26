@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<HTML5Pipeline>
+    <RecordingXML>
+        <StartTimeUTC>1466579417709</StartTimeUTC>
+        <EndTimeUTC>1466579428661</EndTimeUTC>
+        <Screen duration="11200">
+            <Sequence duration="11200" start="0" size="1280,720">http://192.168.0.1:8080/screen_final.mp4
+            </Sequence>
+        </Screen>
+        <Camera>
+            <Sequence duration="5719" start="6142" size="640,480">http://192.168.0.1:8080/camera.mp4
+            </Sequence>
+        </Camera>
+    </RecordingXML>
+</HTML5Pipeline>

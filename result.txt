@@ -1,0 +1,6 @@
+/Users/linzhou/Downloads/20171214_no_camera_prod/recordingMis/524719532_8124557440424726220171213_recordingXML_3.xml: the duration(7786) of generated camera MP4 is different from the duration(222222) of estimated camera MP4!  check done!
+/Users/linzhou/Downloads/20171214_no_camera_prod/recordingMis/524719532_8124557440424726220171213_recordingXML_2.xml: the duration(147544) of generated camera MP4 is different from the duration(222222) of estimated camera MP4!  check done!
+/Users/linzhou/Downloads/20171214_no_camera_prod/recordingMis/524719532_8124557440424726220171213_recordingXML_5.xml: the duration(70713) of generated camera MP4 is different from the duration(222222) of estimated camera MP4!  check done!
+/Users/linzhou/Downloads/20171214_no_camera_prod/recordingMis/524719532_8124557440424726220171213_recordingXML_4.xml: the duration(14694) of generated camera MP4 is different from the duration(222222) of estimated camera MP4!  check done!
+/Users/linzhou/Downloads/20171214_no_camera_prod/recordingMis/524719532_8124557440424726220171213_recordingXML_1.xml: the duration(24438) of generated camera MP4 is different from the duration(222222) of estimated camera MP4!  check done!
+

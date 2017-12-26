@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<FileDump>
+    <MeetingDetail id="81170415328693534">
+        <ModeratorName>Jenny League</ModeratorName>
+        <ModeratorLogin>524719532</ModeratorLogin>
+        <MeetingName>recording webex and TP</MeetingName>
+        <StartTimeUTC/>
+        <EndTimeUTC/>
+        <ModeratorEmail>524719532</ModeratorEmail>
+        <ParticipantList list="2">
+            <Participant>
+                <LoginName CLID="0" NodeID="16781313" NodeType="139264" UAID="37" UID="524719532" VAID="0">Jenny League</LoginName>
+                <JoinDateTimeUTC>1513119414782</JoinDateTimeUTC>
+                <LeaveDateTimeUTC>1513119433744</LeaveDateTimeUTC>
+                <CorporateEmailID>524719532</CorporateEmailID>
+            </Participant>
+            <Participant>
+                <LoginName CLID="0" NodeID="16789505" NodeType="50334208" UAID="10175" UID="524719532" VAID="0">TelePresence systems</LoginName>
+                <JoinDateTimeUTC>1513119414782</JoinDateTimeUTC>
+                <LeaveDateTimeUTC>1513119433744</LeaveDateTimeUTC>
+                <CorporateEmailID>524719532</CorporateEmailID>
+            </Participant>
+        </ParticipantList>
+        <MeetingSession type="chat"/>
+        <TOC EventCount="5" IsHibrid="1" NbrStart="1513119414000" NbrVersion="2.3">
+            <Event Content="Recording Start" EventType="256" SessionID="0" SessionType="100" Time="1513119414000"/>
+            <Event Content="Video Start" EventType="0" SessionID="106" SessionType="21" Time="1513119414782"/>
+            <Event Content="Stream Start" EventType="5" SessionID="268435457" SessionType="21" Time="1513119415085"/>
+            <Event Content="Stream End" EventType="6" SessionID="268435457" SessionType="21" Time="1513119415319"/>
+            <Event Content="Recording End" EventType="259" SessionID="0" SessionType="100" Time="1513119433744"/>
+        </TOC>
+        <Sessions>
+            <Session end="1513119433744" id="0" start="1513119414782" type="0"/>
+            <Session end="1513119433744" id="108" start="1513119414782" type="50"/>
+            <Session end="0" id="101" start="1513119414782" type="1"/>
+            <Session end="0" id="103" start="1513119414782" type="23"/>
+            <Session end="0" id="104" start="1513119414782" type="5"/>
+            <Session end="0" id="106" start="1513119414782" type="21"/>
+            <Session end="0" id="268435457" start="1513119415085" type="21"/>
+        </Sessions>
+        <RoleEvents originalHostID="524719532">
+            <RoleEvent Role="Host" UID="524719532" timestamp="1513119414782"/>
+            <RoleEvent Role="Presenter" UID="524719532" timestamp="1513119414782"/>
+        </RoleEvents>
+        <Audio>
+            <SessionActionNotify receiveTimestamp="1513119415666" timestamp="1513119415333"/>
+        </Audio>
+        <recordingStartDateLabel>Tuesday, December 12, 2017</recordingStartDateLabel>
+        <recordingStartTimeLabel>4:56 pm, Central Standard Time (Chicago, GMT-06:00)</recordingStartTimeLabel>
+        <recordingStartGmtTime>1513119414000</recordingStartGmtTime>
+    </MeetingDetail>
+</FileDump>
