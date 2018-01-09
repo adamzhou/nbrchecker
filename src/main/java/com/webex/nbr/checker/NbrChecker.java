@@ -1,14 +1,29 @@
 package com.webex.nbr.checker;
 
+import com.google.common.base.Stopwatch;
+import com.sun.org.apache.xml.internal.serialize.OutputFormat;
+import com.sun.org.apache.xml.internal.serialize.XMLSerializer;
 import com.webex.nbr.checker.dto.RecordingMP4Info;
 import com.webex.nbr.checker.dto.StreamPair;
 import com.webex.nbr.checker.dto.recordingdata.CameraData;
 import com.webex.nbr.checker.dto.recordingmisc.CameraMP4Info;
 import com.webex.nbr.checker.dto.recordingmisc.RecordingMisc;
 import com.webex.nbr.checker.dto.recordingmisc.TocEvent;
-import com.webex.nbr.checker.dto.recordingmp4.CameraAVCInfo;
+import com.webex.nbr.checker.utils.NbrRawDataUtil;
+import com.webex.nbr.checker.utils.XMLNode;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.w3c.dom.Document;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
 
-import java.io.IOException;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.*;
 
 /**
@@ -20,17 +35,21 @@ public class NbrChecker {
     final static private String EVENT_CONTENT_STREAM_START = "Stream Start";
     final static private String EVENT_CONTENT_STREAM_END = "Stream End";
     final static private Integer EVENT_SESSION_TYPE_AUDIO = 21;
-    final static private double CAMERA_DURATION_ERROR_RATE_THRESHOLD = 0.05;
 
     public NbrChecker(List<String> rawDataPathList) {
         this.rawDataPathList.addAll(rawDataPathList);
     }
 
     public NbrCheckResult check() {
+        Stopwatch sw = Stopwatch.createStarted();
         NbrCheckResult result = new NbrCheckResult();
         for (String rawDataPath : rawDataPathList) {
             result.addItem(checkItem(rawDataPath));
         }
+        sw.stop();
+        NbrCheckRecording nbrCheckItem = new NbrCheckRecording();
+        nbrCheckItem.setResult("=======Total time: " + sw.toString() + "=======");
+        result.addItem(nbrCheckItem);
         return result;
     }
 
@@ -41,138 +60,287 @@ public class NbrChecker {
      * 3. Find the camera MP4 under the same directory as recording.xml and get the duration of camera MP4
      * 4. Compare between the duration of the camera MP4 and the duration of the video session
      *
-     * The original flow's result is wrong. New follow is following.
+     * The original flow's result is wrong. New flow is following.
      * 1. Get recording XML list under RecordingMis folder
      * 2. Get MISC recording XML/Camera raw data map according to the NbrStart timestamp
      * 3. Get recording XML info under RecordingMP4 folder
      * 3. For every recording, get the correct camera duration with the modified nbrtool
      * 4. Compare between the duration of generated camera MP4 and the estimated duration
      *
+     * RecordingMis/*.xml
+     *
+     <TOC EventCount="5" IsHibrid="1" NbrStart="1513119414000" NbrVersion="2.3">
+     <Event Content="Recording Start" EventType="256" SessionID="0" SessionType="100" Time="1513119414000"/>
+     <Event Content="Video Start" EventType="0" SessionID="106" SessionType="21" Time="1513119414782"/>
+     <Event Content="Stream Start" EventType="5" SessionID="268435457" SessionType="21" Time="1513119415085"/>
+     <Event Content="Stream End" EventType="6" SessionID="268435457" SessionType="21" Time="1513119415319"/>
+     <Event Content="Recording End" EventType="259" SessionID="0" SessionType="100" Time="1513119433744"/>
+     </TOC>
+     *
+     *
+     * Result output:
+     *
+     * if the camera length is correct:
+     * /xxxx/RecordingMP4/{RecordId} Path, Camera Length OK
+     *
+     * if the camera length is not correct:
+     * /xxxx/RecordingMP4/{RecordId} Path, Camera Length Comparision(original length, estimated length), New Camera File Path, New recording.xml Path
      *
      * @return
      */
-    private NbrCheckItem checkItem(String rawDataPath) {
+    private NbrCheckRecording checkItem(String rawDataPath) {
+        Stopwatch sw = Stopwatch.createStarted();
+        // the key of all the maps is RecordingMis/xxxx.xml
         Map<String, RecordingMisc> recordingMiscMap = NbrRawDataUtil.getRecordingMiscs(rawDataPath);
         Map<String, RecordingMP4Info> recordingMP4InfoMap = NbrRawDataUtil.getRecordingMP4InfoMap(
                 rawDataPath, recordingMiscMap);
-        Map<String, List<CameraAVCInfo>> estimatedCameraMap = getEstimatedCameraMap(rawDataPath);
+        Map<String, NbrCheckRecording> estimatedCameraMap = getEstimatedCameraMap(rawDataPath, recordingMP4InfoMap);
 
         //Compare between the duration of generated camera MP4 and the estimated duration
         StringBuilder sb = new StringBuilder();
         for (Map.Entry<String, RecordingMP4Info> entry : recordingMP4InfoMap.entrySet()) {
             List<CameraMP4Info> generatedCameraMP4List = entry.getValue().getCameraMP4InfoList();
-            List<CameraAVCInfo> estimatedCameraMP4List = estimatedCameraMap.get(entry.getKey());
+            NbrCheckRecording estimatedRecording = estimatedCameraMap.get(entry.getKey());
 
-            sb.append(entry.getKey() + ": ");
-            if (generatedCameraMP4List == null || estimatedCameraMP4List == null
-                    || generatedCameraMP4List.isEmpty() || estimatedCameraMP4List.isEmpty()) {
-                sb.append("no generated camera MP4 or estimated camera MP4!");
+            sb.append(entry.getValue().getRecordingMP4Folder() + ", ");
+            if (generatedCameraMP4List == null || estimatedRecording == null
+                    || generatedCameraMP4List.isEmpty()) {
+                sb.append("No generated camera MP4!\n");
                 break;
             }
 
-            if (generatedCameraMP4List.size() != estimatedCameraMP4List.size()) {
-                String msgFormat = "the size(%s) of generated camera MP4 list is different from the size(%s) of estimated camera MP4 list!";
-                String msg = String.format(msgFormat, generatedCameraMP4List.size(), estimatedCameraMP4List.size());
+            if (estimatedRecording.isCameraLengthOK()) {
+                String msg = "Camera Length OK\n";
+                sb.append(msg);
+                break;
+            } else if (estimatedRecording.getNewCameraMP4InfoList() == null) {
+                String msg = "No estimated camera MP4!\n";
+                sb.append(msg);
+                break;
+            } else if (generatedCameraMP4List.size() != estimatedRecording.getNewCameraMP4InfoList().size()) {
+                String msgFormat = "The size of camera MP4 list is different(generated: %d, estimated: %d)!\n";
+                String msg = String.format(msgFormat, generatedCameraMP4List.size(), estimatedRecording.getNewCameraMP4InfoList().size());
                 sb.append(msg);
                 break;
             }
 
+            //generate new recording.xml to replace the camera duration
+            String newRecordingXML = generateNewRecordingXML(estimatedRecording);
+
             for (int i = 0; i < generatedCameraMP4List.size(); i++) {
                 CameraMP4Info generatedCameraMP4Info = generatedCameraMP4List.get(i);
-                CameraAVCInfo estimatedCameraAVCInfo = estimatedCameraMP4List.get(i);
-                if (generatedCameraMP4Info.getDuration() != estimatedCameraAVCInfo.getDuration()) {
-                    String msgFormat = "the duration(%d) of generated camera MP4 is different from the duration(%d) of estimated camera MP4! ";
-                    String msg = String.format(msgFormat, generatedCameraMP4Info.getDuration(), estimatedCameraAVCInfo.getDuration());
-                    sb.append(msg);
-                    break;
-                }
-            }
+                CameraMP4Info estimatedCameraMP4Info = estimatedRecording.getNewCameraMP4InfoList().get(i);
 
-            sb.append(" check done!\n");
+                //generate new camera mp4 with old camera filename with the original duration
+                String newCameraMP4File = generateNewCameraMP4(NbrRawDataUtil.getNameFromPath(generatedCameraMP4Info.getFilePath()), estimatedCameraMP4Info.getFilePath());
+                String msgFormat = "Camera Length Comparision(generated: %d, estimated: %d), %s, %s";
+                String msg = String.format(msgFormat, generatedCameraMP4Info.getDuration(),
+                        estimatedCameraMP4Info.getDuration(), newCameraMP4File, newRecordingXML);
+                sb.append(msg);
+                break;
+            }
+            sb.append("\n");
         }
 
-        NbrCheckItem nbrCheckItem = new NbrCheckItem();
+        sw.stop();
+        sb.append("====== It took " + sw.toString() + " to parse this raw data path: " + rawDataPath + "========");
+        NbrCheckRecording nbrCheckItem = new NbrCheckRecording();
         nbrCheckItem.setResult(sb.toString());
         return nbrCheckItem;
     }
 
-    private Map<String, List<CameraAVCInfo>> getEstimatedCameraMap(String rawDataPath) {
-        Map<String, List<CameraAVCInfo>> estimatedCameraMap = new HashMap<>();
+    /**
+     * Generate the new recording.xml with the new camera duration
+     *
+     * @param estimatedRecording
+     * @return new recording.xml path
+     */
+    private String generateNewRecordingXML(NbrCheckRecording estimatedRecording) {
+        if (estimatedRecording == null || estimatedRecording.getExistingCameraMP4InfoList() == null
+                || estimatedRecording.getExistingCameraMP4InfoList().isEmpty()
+                || estimatedRecording.getNewCameraMP4InfoList() == null
+                || estimatedRecording.getNewCameraMP4InfoList().isEmpty()) {
+            System.out.println("NbrChecker::generateNewRecordingXML: existingCameraMP4List is blank or newCameraMP4InfoList is blank!");
+            return null;
+        }
+
+        if (estimatedRecording.getExistingCameraMP4InfoList().size() != estimatedRecording.getNewCameraMP4InfoList().size()) {
+            System.out.println("NbrChecker::generateNewRecordingXML: existingCameraMP4List size does not equal to newCameraMP4InfoList size!");
+            return null;
+        }
+
+        if (StringUtils.isBlank(estimatedRecording.getExistingRecordingMP4XML())) {
+            System.out.println("NbrChecker::generateNewRecordingXML: existingRecordingPM4XML is blank!");
+            return null;
+        }
+
+        //get the mapping of camera filename and new duration
+        Map<String, Long> cameraFilenameNewDurationMap = getCameraDurationMap(estimatedRecording);
+
+        try {
+            byte[] recordingXML = Files.readAllBytes(Paths.get(estimatedRecording.getExistingRecordingMP4XML()));
+            XMLNode recordingX = XMLNode.parse(new ByteArrayInputStream(recordingXML));
+            updateCameraDuration(recordingX, cameraFilenameNewDurationMap);
+            String newRecordingXMLPath = getNewRecordingXMLPath(estimatedRecording);
+            File file = new File(newRecordingXMLPath);
+            try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+                writer.write(formatXML(new String(recordingX.generate())));
+            }
+            return newRecordingXMLPath;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        } catch (SAXException e) {
+            e.printStackTrace();
+            return null;
+        } catch (ParserConfigurationException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    public static String formatXML(String unformattedXML) {
+        try {
+            final Document document = parseXmlFile(unformattedXML);
+
+            OutputFormat format = new OutputFormat(document);
+            format.setLineWidth(65);
+            format.setIndenting(true);
+            format.setIndent(2);
+            Writer out = new StringWriter();
+            XMLSerializer serializer = new XMLSerializer(out, format);
+            serializer.serialize(document);
+
+            return out.toString();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static Document parseXmlFile(String in) {
+        try {
+            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+            DocumentBuilder db = dbf.newDocumentBuilder();
+            InputSource is = new InputSource(new StringReader(in));
+            return db.parse(is);
+        } catch (ParserConfigurationException e) {
+            throw new RuntimeException(e);
+        } catch (SAXException e) {
+            throw new RuntimeException(e);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static String getNewRecordingXMLPath(NbrCheckRecording nbrCheckRecording) {
+        String newXMLPath = null;
+        if (nbrCheckRecording != null && nbrCheckRecording.getNewCameraMP4InfoList() != null
+                && !nbrCheckRecording.getNewCameraMP4InfoList().isEmpty()) {
+            String cameraPath = nbrCheckRecording.getNewCameraMP4InfoList().get(0).getFilePath();
+            if (cameraPath.lastIndexOf(File.separator) != -1) {
+                newXMLPath = cameraPath.substring(0, cameraPath.lastIndexOf(File.separator) + 1).concat("newRecording.xml");
+            } else {
+                newXMLPath = "newRecording.xml";
+            }
+        }
+        return newXMLPath;
+    }
+
+    public static void updateCameraDuration(XMLNode recordingX, Map<String, Long> cameraFilenameNewDurationMap) {
+        Iterator<XMLNode> itLevel1 = recordingX.children.iterator();
+        XMLNode cameraNode = null;
+        while (itLevel1.hasNext()) {
+            XMLNode eLevel1 = itLevel1.next();
+            if (eLevel1.name.equals("Camera")) {
+                cameraNode = eLevel1;
+                break;
+            }
+        }
+
+        if (cameraNode != null) {
+            Iterator<XMLNode> cameraSequenceIter = cameraNode.children.iterator();
+            while (cameraSequenceIter.hasNext()) {
+                XMLNode cameraSequenceNode = cameraSequenceIter.next();
+                String cameraFilename = cameraSequenceNode.content.get(0);
+                if (cameraSequenceNode.name.equals("Sequence") && cameraFilenameNewDurationMap.get(cameraFilename) != null) {
+                    cameraSequenceNode.attrs.put("duration", String.valueOf(cameraFilenameNewDurationMap.get(cameraFilename)));
+                }
+            }
+        }
+    }
+
+    /**
+     * get the mapping of camera name and duration
+     * camera_1330_385702.mp4, 385702
+     *
+     *
+     *
+     * @param nbrCheckRecording
+     * @return
+     */
+    private Map<String, Long> getCameraDurationMap(NbrCheckRecording nbrCheckRecording) {
+        Map<String, Long> cameraDurationMap = new HashMap<>();
+        if (nbrCheckRecording != null && nbrCheckRecording.getExistingCameraMP4InfoList() != null
+                && nbrCheckRecording.getNewCameraMP4InfoList() != null
+                && !nbrCheckRecording.getExistingCameraMP4InfoList().isEmpty()
+                && !nbrCheckRecording.getNewCameraMP4InfoList().isEmpty()
+                && nbrCheckRecording.getExistingCameraMP4InfoList().size() == nbrCheckRecording.getNewCameraMP4InfoList().size()) {
+            for (int i = 0; i < nbrCheckRecording.getNewCameraMP4InfoList().size(); i++) {
+                cameraDurationMap.put(NbrRawDataUtil.getNameFromPath(nbrCheckRecording.getExistingCameraMP4InfoList().get(i).getFilePath()),
+                        nbrCheckRecording.getNewCameraMP4InfoList().get(i).getDuration());
+            }
+        }
+        return cameraDurationMap;
+    }
+
+    private String generateNewCameraMP4(String newName, String sourceFilePath) {
+        if (StringUtils.isBlank(newName) || StringUtils.isBlank(sourceFilePath)) {
+            return null;
+        }
+
+        String newFilePath = sourceFilePath.substring(0, sourceFilePath.lastIndexOf(File.separator) + 1).concat(newName);
+
+        try {
+            FileUtils.copyFile(new File(sourceFilePath), new File(newFilePath));
+            return newFilePath;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     *
+     * @param rawDataPath
+     * @param recordingMP4InfoMap
+     * @return Map<String, NbrCheckRecording> the key is RecordingMis/xxxx.xml, it relates to one recording
+     */
+    private Map<String, NbrCheckRecording> getEstimatedCameraMap(String rawDataPath,
+                                                                 Map<String, RecordingMP4Info> recordingMP4InfoMap) {
+        Map<String, NbrCheckRecording> estimatedCameraMap = new HashMap<>();
         Map<String, CameraData> miscCameraMap = NbrRawDataUtil.getCameraFiles(rawDataPath);
         if (miscCameraMap != null && !miscCameraMap.isEmpty()) {
+            //for every pair (camera.dat/camera.idx)
             for (Map.Entry<String, CameraData> entry : miscCameraMap.entrySet()) {
-                List<CameraAVCInfo> cameraMP4List = getEstimatedCameras(entry.getValue());
-                estimatedCameraMap.put(entry.getKey(), cameraMP4List);
+                RecordingMP4Info generatedMP4Info = recordingMP4InfoMap.get(entry.getKey());
+                NbrCheckRecording nbrCheckItem = getEstimatedCameras(entry.getValue(), generatedMP4Info);
+                estimatedCameraMap.put(entry.getKey(), nbrCheckItem);
             }
         }
 
         return estimatedCameraMap;
     }
 
-    private List<CameraAVCInfo> getEstimatedCameras(CameraData cameraData) {
-        List<CameraAVCInfo> estimatedCameras = null;
+    private NbrCheckRecording getEstimatedCameras(CameraData cameraData, RecordingMP4Info generatedMP4Info) {
         NbrCheckExecutor executor = null;
         try {
             executor = NbrCheckExecutor.getInstance();
         } catch (Exception e) {
-            return estimatedCameras;
+            NbrCheckRecording nbrCheckItem = new NbrCheckRecording();
+            nbrCheckItem.setErrorMsg("NbrChecker::getEstimatedCameras failed to call NbrCheckExecutor.getInstance!");
+            return nbrCheckItem;
         }
-        try {
-            estimatedCameras = executor.run(cameraData.getDatFile(), cameraData.getIdxFile());
-        } catch (Exception e) {
-            return estimatedCameras;
-        }
-        return estimatedCameras;
-    }
-
-    /**
-     * RecordingMis/*.xml
-     *
-     <TOC EventCount="5" IsHibrid="1" NbrStart="1513119414000" NbrVersion="2.3">
-         <Event Content="Recording Start" EventType="256" SessionID="0" SessionType="100" Time="1513119414000"/>
-         <Event Content="Video Start" EventType="0" SessionID="106" SessionType="21" Time="1513119414782"/>
-         <Event Content="Stream Start" EventType="5" SessionID="268435457" SessionType="21" Time="1513119415085"/>
-         <Event Content="Stream End" EventType="6" SessionID="268435457" SessionType="21" Time="1513119415319"/>
-         <Event Content="Recording End" EventType="259" SessionID="0" SessionType="100" Time="1513119433744"/>
-     </TOC>
-
-     *
-     *
-     * @param recordingMisc
-     * @param recordingMP4Info
-     * @return
-     */
-    private String checkCameraLength(RecordingMisc recordingMisc, RecordingMP4Info recordingMP4Info) {
-        List<TocEvent> tocEvents = recordingMisc.getMeetingDetail().getTocEventList().getTocEventList();
-        List<CameraMP4Info> cameraMP4InfoList = recordingMP4Info.getCameraMP4InfoList();
-        if (cameraMP4InfoList.size() > 1) {
-            return "Not support multiple camera files!";
-        } else if (cameraMP4InfoList.size() == 0) {
-            return "No camera file!";
-        }
-
-        List<CameraMP4Info> cameraMP4InfoListFromRawdata = parseCameraMP4InfoFromRawdata(tocEvents);
-        if (cameraMP4InfoListFromRawdata.size() > 1) {
-            return "Not support multiple stream pairs!";
-        } else if (cameraMP4InfoListFromRawdata.size() == 0) {
-            return "No stream pair!";
-        }
-
-        if (checkCameraDuration(cameraMP4InfoList.get(0).getDuration(),
-                cameraMP4InfoListFromRawdata.get(0).getDuration())) {
-            return "Camera duration is normal, MP4 duration=" + cameraMP4InfoList.get(0).getDuration()
-                    + ", Stream duration=" + cameraMP4InfoListFromRawdata.get(0).getDuration();
-        } else {
-            return "Camera duration is not normal, MP4 duration=" + cameraMP4InfoList.get(0).getDuration()
-                    + ", Stream duration=" + cameraMP4InfoListFromRawdata.get(0).getDuration();
-        }
-
-    }
-
-    private boolean checkCameraDuration(Long mp4Duration, Long streamDuration) {
-        double error_rate = (double)Math.abs(mp4Duration - streamDuration)
-                / (double)Math.max(mp4Duration, streamDuration);
-        return error_rate < CAMERA_DURATION_ERROR_RATE_THRESHOLD;
+        return executor.run(cameraData.getDatFile(), cameraData.getIdxFile(), generatedMP4Info);
     }
 
     private List<CameraMP4Info> parseCameraMP4InfoFromRawdata(List<TocEvent> tocEvents) {

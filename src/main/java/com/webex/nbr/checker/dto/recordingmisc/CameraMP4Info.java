@@ -7,6 +7,15 @@ public class CameraMP4Info implements Comparable<CameraMP4Info> {
 
     private Long offset;
     private Long duration;
+    private String filePath;
+
+    public String getFilePath() {
+        return filePath;
+    }
+
+    public void setFilePath(String filePath) {
+        this.filePath = filePath;
+    }
 
     public Long getOffset() {
         return offset;

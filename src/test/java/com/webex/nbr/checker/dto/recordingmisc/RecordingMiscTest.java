@@ -1,7 +1,6 @@
 package com.webex.nbr.checker.dto.recordingmisc;
 
 import com.google.common.base.Charsets;
-import com.webex.nbr.checker.dto.recordingmisc.RecordingMisc;
 import org.apache.commons.io.IOUtils;
 import org.junit.Test;
 

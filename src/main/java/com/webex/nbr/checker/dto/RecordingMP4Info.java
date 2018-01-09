@@ -16,6 +16,15 @@ public class RecordingMP4Info {
 
     private List<CameraMP4Info> cameraMP4InfoList = new ArrayList<>();
     private Recording recordingInfo;
+    private String recordingMP4Folder;
+
+    public String getRecordingMP4Folder() {
+        return recordingMP4Folder;
+    }
+
+    public void setRecordingMP4Folder(String recordingMP4Folder) {
+        this.recordingMP4Folder = recordingMP4Folder;
+    }
 
     public Recording getRecordingInfo() {
         return recordingInfo;

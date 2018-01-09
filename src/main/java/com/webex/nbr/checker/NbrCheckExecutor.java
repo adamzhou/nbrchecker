@@ -1,15 +1,14 @@
 package com.webex.nbr.checker;
 
-import com.webex.nbr.checker.dto.recordingmp4.CameraAVCInfo;
+import com.webex.nbr.checker.dto.RecordingMP4Info;
+import com.webex.nbr.checker.handler.ConvertRawDataToH264Handler;
+import com.webex.nbr.checker.handler.MergeCameraAudioVideoHandler;
+import com.webex.nbr.checker.handler.NbrCheckerHandler;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.util.Arrays;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -22,12 +21,12 @@ import java.util.UUID;
  */
 public class NbrCheckExecutor {
 
-    private static final String TOOL_PACKAGE_RESOURCE_NAME = "/nbrtoolsimulator/bin.tar.gz";
+    private static final String TOOL_PACKAGE_RESOURCE_NAME = "/nbrtool/allbin.tar.gz";
     private static final String[] CHECK_TOOL_RESOURCE_NAMES = {
             "/test.sh",
     };
-    //private static final String EXECUTOR_NAME = "nbrtool";
-    private static final String EXECUTOR_NAME = "test.sh";
+    private static final String EXECUTOR_NAME = "nbrtool";
+    //private static final String EXECUTOR_NAME = "test.sh";
     private static final String[] EXECUTABLE_FILES = {
             "nbrtool",
             "nbrtool_i"
@@ -168,28 +167,53 @@ public class NbrCheckExecutor {
      * @return
      * @throws Exception
      */
-    public List<CameraAVCInfo> run(String datFile, String idxFile) throws Exception {
-        String outputPath = getTempOutput();
-        StringBuilder sb = new StringBuilder(executorPath);
-        //sb.append(" v ").append(idxFile).append(" ").append(datFile).append(" ")
-          //      .append(outputPath).append(File.separator).append("camera");
-        sb.append(" ").append(workDir).append(" ").append(idxFile).append(" ").append(datFile).append(" ")
-                .append(outputPath).append(File.separator).append("camera");
-        try {
-            Process pr = Runtime.getRuntime().exec(sb.toString(), getEnv());
-            pr.waitFor();
-            return NbrRawDataUtil.getCameraAVCInfo(outputPath);
-        } catch (IOException e) {
-            System.out.println("Failed to execute check tool: " + sb.toString() + " " + e.getMessage());
-            e.printStackTrace();
-            throw new Exception(e.getMessage());
-        } catch (InterruptedException e) {
-            System.out.println("Failed to execute check tool: " + sb.toString() + " " + e.getMessage());
-            e.printStackTrace();
-            throw new Exception(e.getMessage());
-        } finally {
-            FileUtils.deleteDirectory(new File(outputPath));
+    public NbrCheckRecording run(String datFile, String idxFile, RecordingMP4Info generatedMP4Info) {
+        NbrCheckRecording nbrCheckItem = new NbrCheckRecording();
+        if (generatedMP4Info == null) {
+            nbrCheckItem.setErrorMsg("NbrCheckRecording::run: generatedMP4Info is null");
+            return nbrCheckItem;
+        } else if (StringUtils.isBlank(datFile) || StringUtils.isBlank(idxFile)) {
+            nbrCheckItem.setErrorMsg("NbrCheckRecording::run: datFile or idxFile is blank");
+            return nbrCheckItem;
         }
+
+        String outputPath = getTempOutput();
+        ConvertRawDataToH264Handler convertRawDataToH264Handler = new ConvertRawDataToH264Handler();
+        convertRawDataToH264Handler.setOutputDir(outputPath);
+        convertRawDataToH264Handler.setToolDir(workDir);
+        convertRawDataToH264Handler.setRawdataDatFile(datFile);
+        convertRawDataToH264Handler.setRawdataIdxFile(idxFile);
+        convertRawDataToH264Handler.setGeneratedMP4Info(generatedMP4Info);
+
+        NbrCheckerHandler handler = convertRawDataToH264Handler;
+        NbrCheckerHandler newHandler = handler;
+
+        while (newHandler != null) {
+            handler = newHandler;
+            try {
+                newHandler = handler.process();
+            } catch (Exception e) {
+                nbrCheckItem.setErrorMsg("NbrCheckRecording::run: handler process error class: " + handler.getClass());
+                return nbrCheckItem;
+            }
+        }
+
+        if (handler instanceof MergeCameraAudioVideoHandler) {
+            nbrCheckItem.setCameraLengthOK(false);
+            nbrCheckItem.setExistingCameraMP4InfoList(((MergeCameraAudioVideoHandler) handler).getGeneratedMP4Info().getCameraMP4InfoList());
+            nbrCheckItem.setNewCameraMP4InfoList(((MergeCameraAudioVideoHandler) handler).getCameraMP4InfoList());
+            nbrCheckItem.setExistingRecordingMP4XML(((MergeCameraAudioVideoHandler) handler).getGeneratedMP4Info().getRecordingMP4Folder().concat(File.separator + "recording.xml"));
+        } else if (handler instanceof ConvertRawDataToH264Handler) {
+            if (((ConvertRawDataToH264Handler) handler).isCameraLengthOK()) {
+                nbrCheckItem.setCameraLengthOK(true);
+                nbrCheckItem.setExistingCameraMP4InfoList(((ConvertRawDataToH264Handler) handler).getGeneratedMP4Info().getCameraMP4InfoList());
+            } else {
+                nbrCheckItem.setErrorMsg("NbrCheckRecording::run: Wrong handler class: " + handler.getClass());
+            }
+        } else {
+            nbrCheckItem.setErrorMsg("NbrCheckRecording::run: Wrong handler class: " + handler.getClass());
+        }
+        return nbrCheckItem;
     }
 
     private String[] getEnv() {
